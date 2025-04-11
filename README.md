@@ -15,7 +15,36 @@ A powerful CLI tool that analyzes git history to identify contributors responsib
 - Well-formatted tabular output for easy reading
 - Validates that you're in a git repository and the specified path exists
 
+## Requirements
+- Git must be installed on your system
+
+# Supported Operating Systems and Architectures
+
+`gitwho` is available for the following operating systems and CPU architectures:
+
+## macOS
+- **Intel** (amd64)
+- **Apple Silicon** (arm64)
+
+## Linux
+- **Intel/AMD 64-bit** (amd64)
+- **Intel/AMD 32-bit** (386)
+- **ARM 64-bit** (arm64)
+
+## Windows
+- **Intel/AMD 64-bit** (amd64)
+- **Intel/AMD 32-bit** (386)
+- **ARM 64-bit** (arm64)
+
+Note: Windows binaries are available from the [official GitHub releases page](https://github.com/PerArneng/gitwho/releases) but are not currently included in this Homebrew formula since Homebrew is primarily focused on macOS and Linux systems.
+
 ## Installation
+
+## Installation
+
+```shell
+brew install perarneng/tap/srctotext
+```
 
 ### Using Go
 

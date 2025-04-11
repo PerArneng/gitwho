@@ -16,6 +16,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version information set by GoReleaser at build time
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 // Contributor represents a git contributor with their statistics
 type Contributor struct {
 	Name      string
@@ -60,6 +67,11 @@ func init() {
 	// Define the --last/-l flag
 	rootCmd.Flags().StringVarP(&lastTimeRange, "last", "l", "", "Time range for statistics (day, week, month, year)")
 	rootCmd.Flags().StringVarP(&repoPath, "repo", "r", "", "Path to the git repository (defaults to current directory)")
+	
+	// Add version flag
+	rootCmd.Flags().BoolP("version", "v", false, "Show version information")
+	rootCmd.SetVersionTemplate("GitWho {{.Version}} (commit {{.Commit}}, built {{.Date}})\n")
+	rootCmd.Version = version
 }
 
 // isGitRepo checks if the current directory is within a git repository
