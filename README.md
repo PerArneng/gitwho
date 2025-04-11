@@ -43,7 +43,7 @@ Note: Windows binaries are available from the [official GitHub releases page](ht
 ## Installation
 
 ```shell
-brew install perarneng/tap/srctotext
+brew install perarneng/tap/gitwho
 ```
 
 ### Using Go

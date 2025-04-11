@@ -67,7 +67,7 @@ func init() {
 	// Define the --last/-l flag
 	rootCmd.Flags().StringVarP(&lastTimeRange, "last", "l", "", "Time range for statistics (day, week, month, year)")
 	rootCmd.Flags().StringVarP(&repoPath, "repo", "r", "", "Path to the git repository (defaults to current directory)")
-	
+
 	// Add version flag
 	rootCmd.Flags().BoolP("version", "v", false, "Show version information")
 	rootCmd.SetVersionTemplate("GitWho {{.Version}} (commit {{.Commit}}, built {{.Date}})\n")
@@ -110,7 +110,7 @@ func findRepoForPath(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("Error checking file info: %v", err)
 	}
-	
+
 	dirPath := absPath
 	if !fileInfo.IsDir() {
 		dirPath = filepath.Dir(absPath)
@@ -127,12 +127,12 @@ func findRepoForPath(path string) (string, error) {
 
 		// Move up to parent directory
 		parentDir := filepath.Dir(currentDir)
-		
+
 		// If we've reached the root directory and still haven't found a .git dir
 		if parentDir == currentDir {
 			return "", fmt.Errorf("Could not find a Git repository for path: %s", path)
 		}
-		
+
 		currentDir = parentDir
 	}
 }
