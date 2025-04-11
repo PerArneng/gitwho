@@ -36,9 +36,12 @@ shows statistics about contributors who made changes to it.
 
 For directories, it recursively analyzes all files within that directory.
 Results are sorted with the contributors who made the most changes at the top.`,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		path := args[0]
+		path := "."
+		if len(args) == 1 {
+			path = args[0]
+		}
 		runGitWho(path, lastTimeRange)
 	},
 }
@@ -108,33 +111,57 @@ func runGitWho(path string, timeRange string) {
 		os.Exit(1)
 	}
 
+	// Get relative path from git root
+	relPath, err := getRelativePath(path)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	// Get git log data
+	output, err := executeGitLog(relPath, timeRange)
+	if err != nil {
+		fmt.Printf("Error executing git log: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Parse the output and collect contributor statistics
+	contributors := parseGitOutput(output)
+
+	// Display results
+	displayResults(contributors, path, timeRange)
+}
+
+// getRelativePath gets the relative path from git root for the given path
+func getRelativePath(path string) (string, error) {
 	gitRoot, err := findGitRoot()
 	if err != nil {
-		fmt.Println("Error finding git root:", err)
-		os.Exit(1)
+		return "", fmt.Errorf("Error finding git root: %v", err)
 	}
 
 	// Get absolute path
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		fmt.Printf("Error resolving path %s: %v\n", path, err)
-		os.Exit(1)
-	}
-
-	// Get relative path from git root
-	relPath, err := filepath.Rel(gitRoot, absPath)
-	if err != nil {
-		fmt.Printf("Error getting relative path from git root: %v\n", err)
-		os.Exit(1)
+		return "", fmt.Errorf("Error resolving path %s: %v", path, err)
 	}
 
 	// Check if path exists
 	_, err = os.Stat(absPath)
 	if os.IsNotExist(err) {
-		fmt.Printf("Error: Path %s does not exist\n", path)
-		os.Exit(1)
+		return "", fmt.Errorf("Error: Path %s does not exist", path)
 	}
 
+	// Get relative path from git root
+	relPath, err := filepath.Rel(gitRoot, absPath)
+	if err != nil {
+		return "", fmt.Errorf("Error getting relative path from git root: %v", err)
+	}
+
+	return relPath, nil
+}
+
+// executeGitLog runs the git log command and returns its output
+func executeGitLog(relPath string, timeRange string) (string, error) {
 	// Prepare git log command
 	dateFilter := getDateFilter(timeRange)
 	args := []string{
@@ -156,15 +183,18 @@ func runGitWho(path string, timeRange string) {
 	cmd.Stdout = &out
 	cmd.Stderr = os.Stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
 	if err != nil {
-		fmt.Printf("Error executing git log: %v\n", err)
-		os.Exit(1)
+		return "", err
 	}
 
-	// Parse the output and collect contributor statistics
+	return out.String(), nil
+}
+
+// parseGitOutput parses git log output to extract contributor statistics
+func parseGitOutput(output string) []*Contributor {
 	stats := make(map[string]*Contributor)
-	lines := strings.Split(out.String(), "\n")
+	lines := strings.Split(output, "\n")
 
 	currentUser := ""
 	currentEmail := ""
@@ -178,50 +208,65 @@ func runGitWho(path string, timeRange string) {
 				currentEmail = parts[1]
 			}
 		} else if len(line) > 0 && currentUser != "" && !strings.HasPrefix(line, "commit") {
-			// This is a stats line with additions and deletions
-			parts := strings.Fields(line)
-			if len(parts) >= 3 {
-				// Skip binary files
-				if parts[0] == "-" && parts[1] == "-" {
-					continue
-				}
-
-				// Parse additions and deletions
-				var additions, deletions int
-				fmt.Sscanf(parts[0], "%d", &additions)
-				fmt.Sscanf(parts[1], "%d", &deletions)
-
-				key := fmt.Sprintf("%s|%s", currentUser, currentEmail)
-				contributor, exists := stats[key]
-				if !exists {
-					contributor = &Contributor{
-						Name:  currentUser,
-						Email: currentEmail,
-					}
-					stats[key] = contributor
-				}
-
-				contributor.Commits++
-				contributor.Additions += additions
-				contributor.Deletions += deletions
-			}
+			processStatLine(line, currentUser, currentEmail, stats)
 		}
 	}
 
-	// Convert map to slice for sorting
+	// Convert map to slice and sort
+	return sortContributors(stats)
+}
+
+// processStatLine processes a single line of git statistics
+func processStatLine(line, currentUser, currentEmail string, stats map[string]*Contributor) {
+	parts := strings.Fields(line)
+	if len(parts) < 3 {
+		return
+	}
+
+	// Skip binary files
+	if parts[0] == "-" && parts[1] == "-" {
+		return
+	}
+
+	// Parse additions and deletions
+	var additions, deletions int
+	fmt.Sscanf(parts[0], "%d", &additions)
+	fmt.Sscanf(parts[1], "%d", &deletions)
+
+	key := fmt.Sprintf("%s|%s", currentUser, currentEmail)
+	contributor, exists := stats[key]
+	if !exists {
+		contributor = &Contributor{
+			Name:  currentUser,
+			Email: currentEmail,
+		}
+		stats[key] = contributor
+	}
+
+	contributor.Commits++
+	contributor.Additions += additions
+	contributor.Deletions += deletions
+}
+
+// sortContributors sorts contributors by total changes (additions + deletions)
+func sortContributors(stats map[string]*Contributor) []*Contributor {
 	contributors := make([]*Contributor, 0, len(stats))
 	for _, contributor := range stats {
 		contributors = append(contributors, contributor)
 	}
 
-	// Sort contributors by total changes (additions + deletions)
+	// Sort contributors by total changes
 	sort.Slice(contributors, func(i, j int) bool {
 		totalI := contributors[i].Additions + contributors[i].Deletions
 		totalJ := contributors[j].Additions + contributors[j].Deletions
 		return totalI > totalJ
 	})
 
-	// Display results
+	return contributors
+}
+
+// displayResults shows the contributor statistics
+func displayResults(contributors []*Contributor, path string, timeRange string) {
 	if len(contributors) == 0 {
 		fmt.Println("No changes found for the specified path and time range.")
 		return
