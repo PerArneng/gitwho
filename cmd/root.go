@@ -26,6 +26,7 @@ type Contributor struct {
 }
 
 var lastTimeRange string
+var repoPath string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -42,7 +43,7 @@ Results are sorted with the contributors who made the most changes at the top.`,
 		if len(args) == 1 {
 			path = args[0]
 		}
-		runGitWho(path, lastTimeRange)
+		runGitWho(path, lastTimeRange, repoPath)
 	},
 }
 
@@ -58,23 +59,70 @@ func Execute() {
 func init() {
 	// Define the --last/-l flag
 	rootCmd.Flags().StringVarP(&lastTimeRange, "last", "l", "", "Time range for statistics (day, week, month, year)")
+	rootCmd.Flags().StringVarP(&repoPath, "repo", "r", "", "Path to the git repository (defaults to current directory)")
 }
 
 // isGitRepo checks if the current directory is within a git repository
-func isGitRepo() bool {
-	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+func isGitRepo(repoPath string) bool {
+	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--is-inside-work-tree")
 	err := cmd.Run()
 	return err == nil
 }
 
 // findGitRoot finds the root directory of the git repository
-func findGitRoot() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+func findGitRoot(repoPath string) (string, error) {
+	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+// findRepoForPath determines which Git repository a file or directory belongs to
+func findRepoForPath(path string) (string, error) {
+	// Get absolute path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("Error resolving path %s: %v", path, err)
+	}
+
+	// Check if path exists
+	_, err = os.Stat(absPath)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("Error: Path %s does not exist", path)
+	}
+
+	// If path is a file, use its directory
+	fileInfo, err := os.Stat(absPath)
+	if err != nil {
+		return "", fmt.Errorf("Error checking file info: %v", err)
+	}
+	
+	dirPath := absPath
+	if !fileInfo.IsDir() {
+		dirPath = filepath.Dir(absPath)
+	}
+
+	// Walk up the directory tree until we find a .git directory
+	currentDir := dirPath
+	for {
+		// Check if this directory contains a .git directory
+		gitDir := filepath.Join(currentDir, ".git")
+		if _, err := os.Stat(gitDir); err == nil {
+			return currentDir, nil
+		}
+
+		// Move up to parent directory
+		parentDir := filepath.Dir(currentDir)
+		
+		// If we've reached the root directory and still haven't found a .git dir
+		if parentDir == currentDir {
+			return "", fmt.Errorf("Could not find a Git repository for path: %s", path)
+		}
+		
+		currentDir = parentDir
+	}
 }
 
 // getDateFilter returns a git date filter based on the timeRange
@@ -104,22 +152,38 @@ func getDateFilter(timeRange string) string {
 }
 
 // runGitWho runs the git analysis for a file or directory
-func runGitWho(path string, timeRange string) {
-	// Check if we're in a git repo
-	if !isGitRepo() {
-		fmt.Println("Error: Not in a git repository")
+func runGitWho(path string, timeRange string, repoPath string) {
+	var effectiveRepoPath string
+	var err error
+
+	// If repo path is explicitly specified, use it
+	if repoPath != "" {
+		effectiveRepoPath = repoPath
+	} else {
+		// Otherwise, automatically detect the repository for the given path
+		effectiveRepoPath, err = findRepoForPath(path)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		fmt.Printf("Found Git repository: %s\n", effectiveRepoPath)
+	}
+
+	// Check if it's a valid git repo
+	if !isGitRepo(effectiveRepoPath) {
+		fmt.Printf("Error: %s is not a git repository\n", effectiveRepoPath)
 		os.Exit(1)
 	}
 
 	// Get relative path from git root
-	relPath, err := getRelativePath(path)
+	relPath, err := getRelativePath(path, effectiveRepoPath)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
 	// Get git log data
-	output, err := executeGitLog(relPath, timeRange)
+	output, err := executeGitLog(relPath, timeRange, effectiveRepoPath)
 	if err != nil {
 		fmt.Printf("Error executing git log: %v\n", err)
 		os.Exit(1)
@@ -133,14 +197,28 @@ func runGitWho(path string, timeRange string) {
 }
 
 // getRelativePath gets the relative path from git root for the given path
-func getRelativePath(path string) (string, error) {
-	gitRoot, err := findGitRoot()
+func getRelativePath(path string, repoPath string) (string, error) {
+	gitRoot, err := findGitRoot(repoPath)
 	if err != nil {
 		return "", fmt.Errorf("Error finding git root: %v", err)
 	}
 
+	var targetPath string
+	if filepath.IsAbs(path) {
+		// If path is absolute, use it directly
+		targetPath = path
+	} else {
+		// If path is relative and starts with repo path, use it as is
+		if strings.HasPrefix(path, repoPath) {
+			targetPath = path
+		} else {
+			// Otherwise, join with repo path
+			targetPath = filepath.Join(repoPath, path)
+		}
+	}
+
 	// Get absolute path
-	absPath, err := filepath.Abs(path)
+	absPath, err := filepath.Abs(targetPath)
 	if err != nil {
 		return "", fmt.Errorf("Error resolving path %s: %v", path, err)
 	}
@@ -161,10 +239,11 @@ func getRelativePath(path string) (string, error) {
 }
 
 // executeGitLog runs the git log command and returns its output
-func executeGitLog(relPath string, timeRange string) (string, error) {
+func executeGitLog(relPath string, timeRange string, repoPath string) (string, error) {
 	// Prepare git log command
 	dateFilter := getDateFilter(timeRange)
 	args := []string{
+		"-C", repoPath,
 		"log",
 		"--format=%an|%ae",
 		"--numstat",
