@@ -1,6 +1,5 @@
 /*
 Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -257,5 +256,3 @@ func truncateString(s string, length int) string {
 	}
 	return s[:length-3] + "..."
 }
-
-
